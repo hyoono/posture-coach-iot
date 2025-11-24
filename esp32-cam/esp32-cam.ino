@@ -13,7 +13,6 @@
  */
 
 #include <WiFi.h>
-#include <ESPAsyncWebServer.h>
 #include <SPIFFS.h>
 #include <ArduinoJson.h>
 #include "esp_camera.h"
@@ -27,6 +26,11 @@
 // ============================================================================
 // CONFIGURATION
 // ============================================================================
+
+// MIN macro for size calculations
+#ifndef MIN
+#define MIN(a,b) ((a)<(b)?(a):(b))
+#endif
 
 // WiFi Access Point Configuration
 const char* AP_SSID = "PostureCoach-AP";
@@ -77,7 +81,7 @@ IPAddress subnet(255, 255, 255, 0);
 // ============================================================================
 
 // Web Server
-AsyncWebServer server(80);
+httpd_handle_t server = NULL;
 
 // FreeRTOS Handles
 TaskHandle_t postureTaskHandle = NULL;
@@ -472,7 +476,7 @@ void startCameraServer() {
 // ============================================================================
 
 // GET /api/posture/current
-void handleGetPostureCurrent(AsyncWebServerRequest *request) {
+static esp_err_t handleGetPostureCurrent(httpd_req_t *req) {
   DynamicJsonDocument doc(512);
   
   if(xSemaphoreTake(scoreMutex, pdMS_TO_TICKS(100))) {
@@ -487,11 +491,14 @@ void handleGetPostureCurrent(AsyncWebServerRequest *request) {
   
   String response;
   serializeJson(doc, response);
-  request->send(200, "application/json", response);
+  
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_send(req, response.c_str(), response.length());
+  return ESP_OK;
 }
 
 // GET /api/session/active
-void handleGetSessionActive(AsyncWebServerRequest *request) {
+static esp_err_t handleGetSessionActive(httpd_req_t *req) {
   DynamicJsonDocument doc(512);
   
   currentSession.duration = (millis() - currentSession.startTime) / 1000;
@@ -504,17 +511,32 @@ void handleGetSessionActive(AsyncWebServerRequest *request) {
   
   String response;
   serializeJson(doc, response);
-  request->send(200, "application/json", response);
+  
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_send(req, response.c_str(), response.length());
+  return ESP_OK;
 }
 
 // POST /api/sensor/distance
-void handlePostSensorDistance(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+static esp_err_t handlePostSensorDistance(httpd_req_t *req) {
+  char content[256];
+  size_t recv_size = MIN(req->content_len, sizeof(content));
+  
+  int ret = httpd_req_recv(req, content, recv_size);
+  if (ret <= 0) {
+    if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+      httpd_resp_send_408(req);
+    }
+    return ESP_FAIL;
+  }
+  
   DynamicJsonDocument doc(256);
-  DeserializationError error = deserializeJson(doc, data, len);
+  DeserializationError error = deserializeJson(doc, content, recv_size);
   
   if(error) {
-    request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-    return;
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, "{\"error\":\"Invalid JSON\"}", -1);
+    return ESP_FAIL;
   }
   
   lastSensorReading.distance = doc["distance"];
@@ -522,23 +544,39 @@ void handlePostSensorDistance(AsyncWebServerRequest *request, uint8_t *data, siz
   
   Serial.printf("Distance received: %d cm\n", lastSensorReading.distance);
   
-  request->send(200, "application/json", "{\"status\":\"ok\"}");
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_send(req, "{\"status\":\"ok\"}", -1);
+  return ESP_OK;
 }
 
 // POST /api/input/button
-void handlePostInputButton(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+static esp_err_t handlePostInputButton(httpd_req_t *req) {
+  char content[256];
+  size_t recv_size = MIN(req->content_len, sizeof(content));
+  
+  int ret = httpd_req_recv(req, content, recv_size);
+  if (ret <= 0) {
+    if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+      httpd_resp_send_408(req);
+    }
+    return ESP_FAIL;
+  }
+  
   DynamicJsonDocument doc(256);
-  DeserializationError error = deserializeJson(doc, data, len);
+  DeserializationError error = deserializeJson(doc, content, recv_size);
   
   if(error) {
-    request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-    return;
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, "{\"error\":\"Invalid JSON\"}", -1);
+    return ESP_FAIL;
   }
   
   int button = doc["button"];
   String action = doc["action"];
   
   Serial.printf("Button %d: %s\n", button, action.c_str());
+  
+  httpd_resp_set_type(req, "application/json");
   
   if(button == 1 && action == "PRESSED") {
     // Manual break
@@ -553,22 +591,25 @@ void handlePostInputButton(AsyncWebServerRequest *request, uint8_t *data, size_t
     cmd.duration = BREAK_DURATION / 1000;
     xQueueSend(commandQueue, &cmd, 0);
     
-    request->send(200, "application/json", "{\"status\":\"break_started\"}");
+    httpd_resp_send(req, "{\"status\":\"break_started\"}", -1);
   } else if(button == 2 && action == "PRESSED") {
     // Snooze
-    request->send(200, "application/json", "{\"status\":\"snoozed\"}");
+    httpd_resp_send(req, "{\"status\":\"snoozed\"}", -1);
   } else if(button == 3 && action == "PRESSED") {
     // Privacy mode toggle
     privacyMode = !privacyMode;
     String status = privacyMode ? "enabled" : "disabled";
-    request->send(200, "application/json", "{\"status\":\"privacy_" + status + "\"}");
+    String response = "{\"status\":\"privacy_" + status + "\"}";
+    httpd_resp_send(req, response.c_str(), response.length());
   } else {
-    request->send(200, "application/json", "{\"status\":\"ok\"}");
+    httpd_resp_send(req, "{\"status\":\"ok\"}", -1);
   }
+  
+  return ESP_OK;
 }
 
 // GET /api/commands/pending
-void handleGetCommandsPending(AsyncWebServerRequest *request) {
+static esp_err_t handleGetCommandsPending(httpd_req_t *req) {
   CommandData cmd;
   
   if(xQueueReceive(commandQueue, &cmd, 0) == pdTRUE) {
@@ -581,14 +622,19 @@ void handleGetCommandsPending(AsyncWebServerRequest *request) {
     
     String response;
     serializeJson(doc, response);
-    request->send(200, "application/json", response);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, response.c_str(), response.length());
   } else {
-    request->send(200, "application/json", "{\"command\":\"NONE\"}");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, "{\"command\":\"NONE\"}", -1);
   }
+  
+  return ESP_OK;
 }
 
 // POST /api/break/start
-void handlePostBreakStart(AsyncWebServerRequest *request) {
+static esp_err_t handlePostBreakStart(httpd_req_t *req) {
   breakMode = true;
   breakStartTime = millis();
   lastBreakTime = millis();
@@ -600,75 +646,214 @@ void handlePostBreakStart(AsyncWebServerRequest *request) {
   cmd.duration = BREAK_DURATION / 1000;
   xQueueSend(commandQueue, &cmd, 0);
   
-  request->send(200, "application/json", "{\"status\":\"break_started\"}");
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_send(req, "{\"status\":\"break_started\"}", -1);
+  return ESP_OK;
 }
 
 // POST /api/settings/update
-void handlePostSettingsUpdate(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+static esp_err_t handlePostSettingsUpdate(httpd_req_t *req) {
+  char content[256];
+  size_t recv_size = MIN(req->content_len, sizeof(content));
+  
+  int ret = httpd_req_recv(req, content, recv_size);
+  if (ret <= 0) {
+    if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+      httpd_resp_send_408(req);
+    }
+    return ESP_FAIL;
+  }
+  
   DynamicJsonDocument doc(256);
-  DeserializationError error = deserializeJson(doc, data, len);
+  DeserializationError error = deserializeJson(doc, content, recv_size);
   
   if(error) {
-    request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-    return;
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, "{\"error\":\"Invalid JSON\"}", -1);
+    return ESP_FAIL;
   }
   
   // Update settings (implement as needed)
   
-  request->send(200, "application/json", "{\"status\":\"updated\"}");
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_send(req, "{\"status\":\"updated\"}", -1);
+  return ESP_OK;
 }
 
 // ============================================================================
 // WEB SERVER SETUP
 // ============================================================================
 
+// Helper function to get MIME type from file extension
+static const char* getMimeType(const char* path) {
+  if (strstr(path, ".html")) return "text/html";
+  if (strstr(path, ".css")) return "text/css";
+  if (strstr(path, ".js")) return "application/javascript";
+  if (strstr(path, ".json")) return "application/json";
+  if (strstr(path, ".png")) return "image/png";
+  if (strstr(path, ".jpg") || strstr(path, ".jpeg")) return "image/jpeg";
+  if (strstr(path, ".ico")) return "image/x-icon";
+  return "text/plain";
+}
+
+// Serve static files from SPIFFS
+static esp_err_t serveStaticFile(httpd_req_t *req, const char* filepath) {
+  File file = SPIFFS.open(filepath, "r");
+  if (!file) {
+    httpd_resp_send_404(req);
+    return ESP_FAIL;
+  }
+  
+  httpd_resp_set_type(req, getMimeType(filepath));
+  
+  char buffer[512];
+  size_t bytesRead;
+  while ((bytesRead = file.read((uint8_t*)buffer, sizeof(buffer))) > 0) {
+    if (httpd_resp_send_chunk(req, buffer, bytesRead) != ESP_OK) {
+      file.close();
+      return ESP_FAIL;
+    }
+  }
+  
+  file.close();
+  httpd_resp_send_chunk(req, NULL, 0);
+  return ESP_OK;
+}
+
+// Handler for root "/"
+static esp_err_t handleRoot(httpd_req_t *req) {
+  return serveStaticFile(req, "/index.html");
+}
+
+// Handler for /index.html
+static esp_err_t handleIndexHtml(httpd_req_t *req) {
+  return serveStaticFile(req, "/index.html");
+}
+
+// Handler for /style.css
+static esp_err_t handleStyleCss(httpd_req_t *req) {
+  return serveStaticFile(req, "/style.css");
+}
+
+// Handler for /script.js
+static esp_err_t handleScriptJs(httpd_req_t *req) {
+  return serveStaticFile(req, "/script.js");
+}
+
+// 404 handler
+static esp_err_t handle404(httpd_req_t *req, httpd_err_code_t err) {
+  httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not Found");
+  return ESP_FAIL;
+}
+
 void setupWebServer() {
-  // Serve static files from SPIFFS
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/index.html", "text/html");
-  });
+  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+  config.server_port = 80;
+  config.ctrl_port = 32768;
+  config.max_uri_handlers = 20;
+  config.max_resp_headers = 8;
+  config.recv_wait_timeout = 10;
+  config.send_wait_timeout = 10;
   
-  server.on("/index.html", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/index.html", "text/html");
-  });
-  
-  server.on("/style.css", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/style.css", "text/css");
-  });
-  
-  server.on("/script.js", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/script.js", "application/javascript");
-  });
-  
-  // API Endpoints
-  server.on("/api/posture/current", HTTP_GET, handleGetPostureCurrent);
-  server.on("/api/session/active", HTTP_GET, handleGetSessionActive);
-  server.on("/api/commands/pending", HTTP_GET, handleGetCommandsPending);
-  
-  server.on("/api/sensor/distance", HTTP_POST, [](AsyncWebServerRequest *request){} , NULL,
-            [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-              handlePostSensorDistance(request, data, len, index, total);
-            });
-  
-  server.on("/api/input/button", HTTP_POST, [](AsyncWebServerRequest *request){} , NULL,
-            [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-              handlePostInputButton(request, data, len, index, total);
-            });
-  
-  server.on("/api/break/start", HTTP_POST, handlePostBreakStart);
-  
-  server.on("/api/settings/update", HTTP_POST, [](AsyncWebServerRequest *request){} , NULL,
-            [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-              handlePostSettingsUpdate(request, data, len, index, total);
-            });
-  
-  // 404 handler
-  server.onNotFound([](AsyncWebServerRequest *request) {
-    request->send(404, "text/plain", "Not Found");
-  });
-  
-  server.begin();
-  Serial.println("HTTP server started on port 80");
+  if (httpd_start(&server, &config) == ESP_OK) {
+    // Static file handlers
+    httpd_uri_t root_uri = {
+      .uri = "/",
+      .method = HTTP_GET,
+      .handler = handleRoot,
+      .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &root_uri);
+    
+    httpd_uri_t index_uri = {
+      .uri = "/index.html",
+      .method = HTTP_GET,
+      .handler = handleIndexHtml,
+      .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &index_uri);
+    
+    httpd_uri_t style_uri = {
+      .uri = "/style.css",
+      .method = HTTP_GET,
+      .handler = handleStyleCss,
+      .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &style_uri);
+    
+    httpd_uri_t script_uri = {
+      .uri = "/script.js",
+      .method = HTTP_GET,
+      .handler = handleScriptJs,
+      .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &script_uri);
+    
+    // API GET endpoints
+    httpd_uri_t posture_current_uri = {
+      .uri = "/api/posture/current",
+      .method = HTTP_GET,
+      .handler = handleGetPostureCurrent,
+      .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &posture_current_uri);
+    
+    httpd_uri_t session_active_uri = {
+      .uri = "/api/session/active",
+      .method = HTTP_GET,
+      .handler = handleGetSessionActive,
+      .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &session_active_uri);
+    
+    httpd_uri_t commands_pending_uri = {
+      .uri = "/api/commands/pending",
+      .method = HTTP_GET,
+      .handler = handleGetCommandsPending,
+      .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &commands_pending_uri);
+    
+    // API POST endpoints
+    httpd_uri_t sensor_distance_uri = {
+      .uri = "/api/sensor/distance",
+      .method = HTTP_POST,
+      .handler = handlePostSensorDistance,
+      .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &sensor_distance_uri);
+    
+    httpd_uri_t input_button_uri = {
+      .uri = "/api/input/button",
+      .method = HTTP_POST,
+      .handler = handlePostInputButton,
+      .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &input_button_uri);
+    
+    httpd_uri_t break_start_uri = {
+      .uri = "/api/break/start",
+      .method = HTTP_POST,
+      .handler = handlePostBreakStart,
+      .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &break_start_uri);
+    
+    httpd_uri_t settings_update_uri = {
+      .uri = "/api/settings/update",
+      .method = HTTP_POST,
+      .handler = handlePostSettingsUpdate,
+      .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &settings_update_uri);
+    
+    // Register 404 handler
+    httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, handle404);
+    
+    Serial.println("HTTP server started on port 80");
+  } else {
+    Serial.println("Failed to start HTTP server");
+  }
 }
 
 // ============================================================================
