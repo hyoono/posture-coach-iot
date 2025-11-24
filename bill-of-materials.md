@@ -1,0 +1,13 @@
+# Bill of Materials (BOM)
+
+| Component Name           | Specifications                  | Quantity | Unit Price (₱) | Total Price (₱) | Recommended Supplier       | Alternative Options | Notes and Compatibility Info                          |
+|--------------------------|----------------------------------|----------|------------------|------------------|----------------------------|---------------------|------------------------------------------------------|
+| Arduino Uno              | Microcontroller Board            | 1        | 600              | 600              | Lazada                     | Shopee              | Compatible with various sensors and modules.         |
+| MPU-6050 Sensor          | Accelerometer and Gyroscope      | 1        | 150              | 150              | e-Gizmo                    | CircuitRocks        | Ideal for motion tracking.                            |
+| Breadboard               | 400 Tie Points                   | 1        | 100              | 100              | TechShop.ph                | Lazada              | Useful for prototyping circuit connections.           |
+| Jumper Wires             | Male to Female                   | 1 pack   | 50               | 50               | Shopee                     | CircuitRocks        | Essential for connecting components on breadboard.   |
+| USB Cable                | Type A to B                     | 1        | 50               | 50               | Lazada                     | e-Gizmo             | For programming Arduino and powering the circuit.    |
+| Resistors                | 220 Ohm, ½ Watt                  | 5        | 10               | 50               | TechShop.ph                | Lazada              | Commonly used for current limiting.                  |
+| LED Lights               | 5mm Red LED                     | 5        | 5                | 25               | CircuitRocks               | Shopee              | Indicators for status signals.                        |
+| Power Supply             | 9V Battery Pack                 | 1        | 50               | 50               | Lazada                     | e-Gizmo             | Powers Arduino outside USB.                           |
+| **Total Cost**          |                                  |          |                  | **₱1,600**       |                            |                     |                                                      |
