@@ -1,1 +1,173 @@
-<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <title>ESP32-CAM Posture Coach</title>\n    <style>\n        body { font-family: Arial, sans-serif; margin: 0; padding: 0; display: flex; flex-direction: column; align-items: center; }\n        header { background: #4CAF50; width: 100%; color: white; text-align: center; padding: 10px 0; }\n        #cameraFeed { width: 100%; max-width: 600px; }\n        #gauge { width: 200px; height: 200px; border-radius: 50%; border: 15px solid #4CAF50; display: flex; justify-content: center; align-items: center; margin: 20px; }\n        #stats { display: flex; flex-direction: column; align-items: center; }\n        .button { background: #008CBA; color: white; border: none; padding: 10px 20px; margin: 5px; cursor: pointer; }\n        .modal { display: none; position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgb(0,0,0); background-color: rgba(0,0,0,0.4); padding-top: 60px; }\n        .modal-content { background-color: #fefefe; margin: 5% auto; padding: 20px; border: 1px solid #888; width: 80%; }\n        .close { color: #aaa; float: right; font-size: 28px; font-weight: bold; }\n    </style>\n</head>\n<body>\n    <header>\n        <h1>ESP32-CAM Posture Coach Dashboard</h1>\n    </header>\n    <img id=\"cameraFeed\" src=\"/stream\" alt=\"Camera Feed\">\n    <div id=\"gauge\">\n        <span id=\"scoreValue\">%score%</span>\n    </div>\n    <div id=\"stats\">\n        <p>Current Distance: <span id=\"distanceValue\"></span></p>\n        <p>Session Duration: <span id=\"durationValue\"></span></p>\n        <p>Avg Score: <span id=\"avgScoreValue\"></span></p>\n        <p>Alerts: <span id=\"alertsValue\"></span></p>\n        <p>Breaks: <span id=\"breaksValue\"></span></p>\n    </div>\n    <button class=\"button\" id=\"takeBreak\">Take Break</button>\n    <button class=\"button\" id=\"snooze\">Snooze</button>\n    <button class=\"button\" id=\"privacyMode\">Privacy Mode</button>\n    <button class=\"button\" id=\"openSettings\">Settings</button>\n    <div id=\"settingsModal\" class=\"modal\">\n        <div class=\"modal-content\">\n            <span class=\"close\">&times;</span>\n            <h2>Settings</h2>\n            <label for=\"volume\">Volume:</label>\n            <input type=\"range\" id=\"volume\" min=\"0\" max=\"100\">\n            <label for=\"brightness\">Brightness:</label>\n            <input type=\"range\" id=\"brightness\" min=\"0\" max=\"100\">\n        </div>\n    </div>\n    <script>\n        setInterval(async () => {\n            const response = await fetch('/api/posture/current');\n            const data = await response.json();\n            document.getElementById('scoreValue').innerText = data.score;\n            document.getElementById('distanceValue').innerText = data.distance;\n            document.getElementById('avgScoreValue').innerText = data.avgScore;\n            document.getElementById('durationValue').innerText = data.duration;\n            document.getElementById('alertsValue').innerText = data.alerts;\n            document.getElementById('breaksValue').innerText = data.breaks;\n            updateGauge(data.score);\n        }, 3000);\n        document.getElementById('openSettings').onclick = () => {\n            document.getElementById('settingsModal').style.display = 'block';\n        };\n        document.getElementsByClassName('close')[0].onclick = () => {\n            document.getElementById('settingsModal').style.display = 'none';\n        };\n        function updateGauge(score) {\n            const gauge = document.getElementById('gauge');\n            gauge.style.borderColor = score < 50 ? 'red' : 'green';\n        }\n    <\/script>\n</body>\n</html>\n
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Posture Coach Dashboard</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <header>
+        <h1>📷 Smart Posture Coach</h1>
+        <p class="subtitle">Real-time Monitoring & Feedback System</p>
+    </header>
+
+    <main>
+        <!-- Live Camera Feed Section -->
+        <section class="camera-section">
+            <h2>Live Camera Feed</h2>
+            <div class="camera-container">
+                <img id="cameraStream" src="/stream" alt="Camera Feed" onerror="handleStreamError()">
+                <div class="camera-status" id="cameraStatus">
+                    <span class="status-indicator active"></span>
+                    <span>Camera Active</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Posture Score Section -->
+        <section class="score-section">
+            <h2>Posture Score</h2>
+            <div class="score-container">
+                <div class="circular-progress" id="scoreGauge">
+                    <svg viewBox="0 0 200 200">
+                        <circle cx="100" cy="100" r="90" class="progress-bg"></circle>
+                        <circle cx="100" cy="100" r="90" class="progress-bar" id="progressCircle"></circle>
+                    </svg>
+                    <div class="score-value">
+                        <span id="scoreNumber">--</span>
+                        <span class="score-label">/ 100</span>
+                    </div>
+                </div>
+                <div class="score-status" id="scoreStatus">Initializing...</div>
+                <div class="score-details">
+                    <div class="detail-item">
+                        <span class="detail-label">Head Tilt:</span>
+                        <span id="headTilt">-- °</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Shoulders:</span>
+                        <span id="shoulderAlign">--</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Distance Monitoring Section -->
+        <section class="distance-section">
+            <h2>Distance Monitor</h2>
+            <div class="distance-container">
+                <div class="distance-gauge">
+                    <div class="gauge-bar">
+                        <div class="gauge-fill" id="distanceFill"></div>
+                        <div class="gauge-marker optimal-start" title="Optimal Start (50cm)"></div>
+                        <div class="gauge-marker optimal-end" title="Optimal End (70cm)"></div>
+                    </div>
+                    <div class="gauge-labels">
+                        <span>30cm</span>
+                        <span class="optimal-label">50-70cm Optimal</span>
+                        <span>90cm</span>
+                    </div>
+                </div>
+                <div class="distance-value">
+                    <span id="distanceNumber">--</span>
+                    <span class="distance-unit">cm</span>
+                </div>
+                <div class="distance-status" id="distanceStatus">Measuring...</div>
+            </div>
+        </section>
+
+        <!-- Session Information Section -->
+        <section class="session-section">
+            <h2>Current Session</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">⏱️</div>
+                    <div class="stat-value" id="sessionDuration">00:00:00</div>
+                    <div class="stat-label">Duration</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">📊</div>
+                    <div class="stat-value" id="avgScore">--</div>
+                    <div class="stat-label">Avg Score</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">🔔</div>
+                    <div class="stat-value" id="alertCount">0</div>
+                    <div class="stat-label">Alerts</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">☕</div>
+                    <div class="stat-value" id="breakCount">0</div>
+                    <div class="stat-label">Breaks</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Control Buttons Section -->
+        <section class="controls-section">
+            <h2>Quick Actions</h2>
+            <div class="controls-grid">
+                <button class="control-btn break-btn" onclick="takeBreak()">
+                    <span class="btn-icon">☕</span>
+                    <span class="btn-text">Take Break</span>
+                </button>
+                <button class="control-btn snooze-btn" onclick="snoozeAlerts()">
+                    <span class="btn-icon">⏰</span>
+                    <span class="btn-text">Snooze (5 min)</span>
+                </button>
+                <button class="control-btn privacy-btn" onclick="togglePrivacy()" id="privacyBtn">
+                    <span class="btn-icon">🔒</span>
+                    <span class="btn-text">Privacy Mode</span>
+                </button>
+                <button class="control-btn settings-btn" onclick="openSettings()">
+                    <span class="btn-icon">⚙️</span>
+                    <span class="btn-text">Settings</span>
+                </button>
+            </div>
+        </section>
+    </main>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Settings</h2>
+                <span class="close" onclick="closeSettings()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="setting-item">
+                    <label for="alertSensitivity">Alert Sensitivity:</label>
+                    <input type="range" id="alertSensitivity" min="0" max="100" value="75">
+                    <span id="sensitivityValue">75%</span>
+                </div>
+                <div class="setting-item">
+                    <label for="breakInterval">Break Interval:</label>
+                    <select id="breakInterval">
+                        <option value="30">30 minutes</option>
+                        <option value="45" selected>45 minutes</option>
+                        <option value="60">60 minutes</option>
+                    </select>
+                </div>
+                <div class="setting-item">
+                    <label for="minDistance">Minimum Distance (cm):</label>
+                    <input type="number" id="minDistance" value="50" min="30" max="70">
+                </div>
+                <div class="setting-item">
+                    <label for="maxDistance">Maximum Distance (cm):</label>
+                    <input type="number" id="maxDistance" value="70" min="50" max="100">
+                </div>
+                <button class="save-btn" onclick="saveSettings()">Save Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Connection Status Indicator -->
+    <div class="connection-status" id="connectionStatus">
+        <span class="status-dot"></span>
+        <span class="status-text">Connected</span>
+    </div>
+
+    <script src="/script.js"></script>
+</body>
+</html>
