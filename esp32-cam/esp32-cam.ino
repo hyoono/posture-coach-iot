@@ -27,6 +27,11 @@
 // CONFIGURATION
 // ============================================================================
 
+// MIN macro for size calculations
+#ifndef MIN
+#define MIN(a,b) ((a)<(b)?(a):(b))
+#endif
+
 // WiFi Access Point Configuration
 const char* AP_SSID = "PostureCoach-AP";
 const char* AP_PASSWORD = "posture123";
@@ -567,7 +572,7 @@ static esp_err_t handlePostInputButton(httpd_req_t *req) {
   }
   
   int button = doc["button"];
-  String action = doc["action"].as<String>();
+  String action = doc["action"];
   
   Serial.printf("Button %d: %s\n", button, action.c_str());
   
