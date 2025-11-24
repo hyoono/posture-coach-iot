@@ -97,10 +97,9 @@ The **Smart Posture & Ergonomics Camera Coach** is a comprehensive IoT solution 
 
 **For ESP32-CAM:**
 ```
-- ESPAsyncWebServer (https://github.com/me-no-dev/ESPAsyncWebServer)
-- AsyncTCP (https://github.com/me-no-dev/AsyncTCP)
 - ArduinoJson v6.21.0+
 - esp32-camera (included with ESP32 board package)
+- esp_http_server (included with ESP32 board package)
 ```
 
 **For WEMOS D1 R1:**
