@@ -1,0 +1,54 @@
+# Arduino IDE build files
+*.bin
+*.hex
+*.elf
+*.zip
+
+# ESP32/ESP8266 build artifacts
+.build/
+*.d
+*.o
+*.a
+*.lib
+
+# IDE specific files
+.vscode/
+.vscode/settings.json
+.platformio/
+
+# OS specific files
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.
+
+# Compiled binaries
+*.out
+*.exe
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# User-specific settings
+*.user
+*.sublime-workspace
+*.sublime-project
+
+# Credential files
+*.pem
+*.key
+*.json
+
+# Large binary assets
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.mp4
+*.mp3
+*.zip
