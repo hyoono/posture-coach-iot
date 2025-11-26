@@ -609,19 +609,35 @@ void handlePostSettingsUpdate(AsyncWebServerRequest *request, uint8_t *data, siz
 void setupWebServer() {
   // Serve static files from SPIFFS
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/index.html", "text/html");
+    if(SPIFFS.exists("/index.html")) {
+      request->send(SPIFFS, "/index.html", "text/html");
+    } else {
+      request->send(404, "text/plain", "File not found. Please upload SPIFFS data.");
+    }
   });
   
   server.on("/index.html", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/index.html", "text/html");
+    if(SPIFFS.exists("/index.html")) {
+      request->send(SPIFFS, "/index.html", "text/html");
+    } else {
+      request->send(404, "text/plain", "File not found. Please upload SPIFFS data.");
+    }
   });
   
   server.on("/style.css", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/style.css", "text/css");
+    if(SPIFFS.exists("/style.css")) {
+      request->send(SPIFFS, "/style.css", "text/css");
+    } else {
+      request->send(404, "text/plain", "File not found");
+    }
   });
   
   server.on("/script.js", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/script.js", "application/javascript");
+    if(SPIFFS.exists("/script.js")) {
+      request->send(SPIFFS, "/script.js", "application/javascript");
+    } else {
+      request->send(404, "text/plain", "File not found");
+    }
   });
   
   // MJPEG Stream endpoint (integrated into main web server)
@@ -679,6 +695,20 @@ void setup() {
     return;
   }
   Serial.println("SPIFFS mounted successfully");
+  
+  // List SPIFFS files for debugging
+  Serial.println("\nSPIFFS Files:");
+  File root = SPIFFS.open("/");
+  File file = root.openNextFile();
+  while(file) {
+    Serial.print("  ");
+    Serial.print(file.name());
+    Serial.print(" (");
+    Serial.print(file.size());
+    Serial.println(" bytes)");
+    file = root.openNextFile();
+  }
+  Serial.println();
   
   // Initialize Camera
   if(!initCamera()) {

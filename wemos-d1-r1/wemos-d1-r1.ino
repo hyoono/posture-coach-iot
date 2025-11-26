@@ -193,6 +193,17 @@ void setupPins() {
   Serial.println("  Ultrasonic: D2 (Trig), D13 (Echo)");
   Serial.println("  Buzzer: A0");
   Serial.println("  I2C: D4 (SDA), D3 (SCL)");
+  
+  // Read initial button states for debugging
+  delay(100);
+  Serial.println("\nInitial button states (should be HIGH with pull-ups):");
+  Serial.print("  Button 1 (D5): ");
+  Serial.println(digitalRead(BUTTON1_PIN) == HIGH ? "HIGH (released)" : "LOW (STUCK OR PRESSED!)");
+  Serial.print("  Button 2 (D6): ");
+  Serial.println(digitalRead(BUTTON2_PIN) == HIGH ? "HIGH (released)" : "LOW (pressed)");
+  Serial.print("  Button 3 (D7): ");
+  Serial.println(digitalRead(BUTTON3_PIN) == HIGH ? "HIGH (released)" : "LOW (pressed)");
+  Serial.println();
 }
 
 void setupOLED() {
@@ -343,24 +354,45 @@ float readDistance() {
 }
 
 void checkButtons() {
+  // Read button states
+  int btn1State = digitalRead(BUTTON1_PIN);
+  int btn2State = digitalRead(BUTTON2_PIN);
+  int btn3State = digitalRead(BUTTON3_PIN);
+  
   // Button 1: Manual Break (Active LOW with internal pull-up)
-  if (digitalRead(BUTTON1_PIN) == LOW && 
+  // Only trigger if button has been released first (prevents stuck button)
+  static bool btn1WasHigh = true;
+  if (btn1State == HIGH) {
+    btn1WasHigh = true;
+  }
+  if (btn1State == LOW && btn1WasHigh && 
       (millis() - lastButton1Press > BUTTON_DEBOUNCE)) {
     lastButton1Press = millis();
+    btn1WasHigh = false;
     handleBreakButton();
   }
   
   // Button 2: Snooze Alerts (Active LOW with internal pull-up)
-  if (digitalRead(BUTTON2_PIN) == LOW && 
+  static bool btn2WasHigh = true;
+  if (btn2State == HIGH) {
+    btn2WasHigh = true;
+  }
+  if (btn2State == LOW && btn2WasHigh && 
       (millis() - lastButton2Press > BUTTON_DEBOUNCE)) {
     lastButton2Press = millis();
+    btn2WasHigh = false;
     handleSnoozeButton();
   }
   
   // Button 3: Privacy Mode Toggle (Active LOW with internal pull-up)
-  if (digitalRead(BUTTON3_PIN) == LOW && 
+  static bool btn3WasHigh = true;
+  if (btn3State == HIGH) {
+    btn3WasHigh = true;
+  }
+  if (btn3State == LOW && btn3WasHigh && 
       (millis() - lastButton3Press > BUTTON_DEBOUNCE)) {
     lastButton3Press = millis();
+    btn3WasHigh = false;
     handlePrivacyButton();
   }
 }
