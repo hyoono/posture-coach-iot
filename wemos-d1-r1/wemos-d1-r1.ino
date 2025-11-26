@@ -80,6 +80,9 @@ float distance = 0;
 String currentStatus = "Good";
 String ledColor = "GREEN";
 
+// HTTP request semaphore to prevent concurrent requests that cause brownout
+bool httpRequestInProgress = false;
+
 void setup() {
   Serial.begin(115200);
   delay(100);
@@ -423,6 +426,23 @@ void handleBreakButton() {
   breakMode = true;
   currentStatus = "Break Mode";
   
+  // Wait for any previous HTTP request to complete (prevent brownout)
+  int waitCount = 0;
+  while(httpRequestInProgress && waitCount < 50) {
+    delay(10);
+    waitCount++;
+  }
+  
+  if(httpRequestInProgress) {
+    Serial.println("[WARNING] HTTP still busy, skipping request");
+    return;
+  }
+  
+  httpRequestInProgress = true;
+  
+  // Delay after button press to reduce electrical noise
+  delay(200);
+  
   // Send button press to ESP32-CAM
   HTTPClient http;
   WiFiClient client;
@@ -430,11 +450,11 @@ void handleBreakButton() {
   String url = "http://" + String(serverIP) + "/api/input/button";
   http.begin(client, url);
   http.addHeader("Content-Type", "application/json");
+  http.setTimeout(3000);  // 3 second timeout
   
-  StaticJsonDocument<128> doc;
+  StaticJsonDocument<96> doc;  // Reduced size to minimize memory
   doc["button"] = 1;
   doc["action"] = "PRESSED";
-  doc["timestamp"] = millis();
   
   String payload;
   serializeJson(doc, payload);
@@ -445,9 +465,12 @@ void handleBreakButton() {
   if (httpCode == 200) {
     String response = http.getString();
     Serial.println("Response: " + response);
+  } else if (httpCode < 0) {
+    Serial.printf("[ERROR] HTTP request failed: %s\n", http.errorToString(httpCode).c_str());
   }
   
   http.end();
+  httpRequestInProgress = false;
 }
 
 void handleSnoozeButton() {
@@ -456,6 +479,21 @@ void handleSnoozeButton() {
   
   currentStatus = "Snoozed 5min";
   
+  // Wait for any previous HTTP request to complete
+  int waitCount = 0;
+  while(httpRequestInProgress && waitCount < 50) {
+    delay(10);
+    waitCount++;
+  }
+  
+  if(httpRequestInProgress) {
+    Serial.println("[WARNING] HTTP still busy, skipping request");
+    return;
+  }
+  
+  httpRequestInProgress = true;
+  delay(200);
+  
   // Send button press to ESP32-CAM
   HTTPClient http;
   WiFiClient client;
@@ -463,11 +501,11 @@ void handleSnoozeButton() {
   String url = "http://" + String(serverIP) + "/api/input/button";
   http.begin(client, url);
   http.addHeader("Content-Type", "application/json");
+  http.setTimeout(3000);
   
-  StaticJsonDocument<128> doc;
+  StaticJsonDocument<96> doc;
   doc["button"] = 2;
   doc["action"] = "PRESSED";
-  doc["timestamp"] = millis();
   
   String payload;
   serializeJson(doc, payload);
@@ -475,7 +513,12 @@ void handleSnoozeButton() {
   int httpCode = http.POST(payload);
   Serial.printf("Snooze request sent, response code: %d\n", httpCode);
   
+  if (httpCode < 0) {
+    Serial.printf("[ERROR] HTTP request failed: %s\n", http.errorToString(httpCode).c_str());
+  }
+  
   http.end();
+  httpRequestInProgress = false;
 }
 
 void handlePrivacyButton() {
@@ -500,6 +543,21 @@ void handlePrivacyButton() {
   
   currentStatus = privacyMode ? "Privacy ON" : "Monitoring";
   
+  // Wait for any previous HTTP request to complete
+  int waitCount = 0;
+  while(httpRequestInProgress && waitCount < 50) {
+    delay(10);
+    waitCount++;
+  }
+  
+  if(httpRequestInProgress) {
+    Serial.println("[WARNING] HTTP still busy, skipping request");
+    return;
+  }
+  
+  httpRequestInProgress = true;
+  delay(200);
+  
   // Send button press to ESP32-CAM
   HTTPClient http;
   WiFiClient client;
@@ -507,19 +565,24 @@ void handlePrivacyButton() {
   String url = "http://" + String(serverIP) + "/api/input/button";
   http.begin(client, url);
   http.addHeader("Content-Type", "application/json");
+  http.setTimeout(3000);
   
-  StaticJsonDocument<128> doc;
+  StaticJsonDocument<96> doc;
   doc["button"] = 3;
   doc["action"] = "PRESSED";
-  doc["timestamp"] = millis();
   
   String payload;
   serializeJson(doc, payload);
   
   int httpCode = http.POST(payload);
-  Serial.printf("Privacy toggle sent, response code: %d\n", httpCode);
+  Serial.printf("Privacy request sent, response code: %d\n", httpCode);
+  
+  if (httpCode < 0) {
+    Serial.printf("[ERROR] HTTP request failed: %s\n", http.errorToString(httpCode).c_str());
+  }
   
   http.end();
+  httpRequestInProgress = false;
 }
 
 void setRGBColor(int r, int g, int b) {
@@ -742,6 +805,10 @@ void pollCommands() {
           executeBuzzerCommand(pattern, duration);
         } else if (command == "BREAK") {
           executeBreakCommand(value, duration);
+        } else if (command == "SNOOZE") {
+          executeSnoozeCommand(duration);
+        } else if (command == "PRIVACY") {
+          executePrivacyCommand(value);
         } else if (command == "OLED") {
           currentStatus = value;
         }
@@ -793,5 +860,31 @@ void executeBreakCommand(String action, int duration) {
     breakMode = false;
     currentStatus = "Monitoring";
     setRGBColor(0, 255, 0);  // Green resume
+  }
+}
+
+void executeSnoozeCommand(int duration) {
+  Serial.printf("[EXECUTE] SNOOZE: %d seconds\n", duration);
+  currentStatus = "Snoozed 5min";
+  playBuzzerTone(1200, 150);
+}
+
+void executePrivacyCommand(String state) {
+  Serial.printf("[EXECUTE] PRIVACY: %s\n", state.c_str());
+  
+  if (state == "ON") {
+    privacyMode = true;
+    currentStatus = "Privacy ON";
+    setRGBColor(255, 0, 255);  // Magenta for privacy
+    playBuzzerTone(2000, 100);
+    delay(120);
+    playBuzzerTone(2000, 100);
+  } else {
+    privacyMode = false;
+    currentStatus = "Monitoring";
+    setRGBColor(0, 255, 0);  // Green for active
+    playBuzzerTone(1000, 100);
+    delay(150);
+    playBuzzerTone(1500, 100);
   }
 }

@@ -600,6 +600,35 @@ void handlePostSettingsUpdate(AsyncWebServerRequest *request, uint8_t *data, siz
   request->send(200, "application/json", "{\"status\":\"updated\"}");
 }
 
+// POST /api/alert/snooze
+void handlePostAlertSnooze(AsyncWebServerRequest *request) {
+  Serial.println("Snooze requested from web dashboard");
+  
+  CommandData cmd;
+  cmd.command = "SNOOZE";
+  cmd.value = "5MIN";
+  cmd.duration = 300;  // 5 minutes
+  xQueueSend(commandQueue, &cmd, 0);
+  
+  request->send(200, "application/json", "{\"status\":\"snoozed\",\"duration\":300}");
+}
+
+// POST /api/privacy/toggle
+void handlePostPrivacyToggle(AsyncWebServerRequest *request) {
+  privacyMode = !privacyMode;
+  
+  Serial.print("Privacy mode toggled from web: ");
+  Serial.println(privacyMode ? "ENABLED" : "DISABLED");
+  
+  CommandData cmd;
+  cmd.command = "PRIVACY";
+  cmd.value = privacyMode ? "ON" : "OFF";
+  xQueueSend(commandQueue, &cmd, 0);
+  
+  String status = privacyMode ? "privacy_enabled" : "privacy_disabled";
+  request->send(200, "application/json", "{\"status\":\"" + status + "\"}");
+}
+
 // ============================================================================
 // WEB SERVER SETUP
 // ============================================================================
@@ -660,6 +689,10 @@ void setupWebServer() {
             });
   
   server.on("/api/break/start", HTTP_POST, handlePostBreakStart);
+  
+  server.on("/api/alert/snooze", HTTP_POST, handlePostAlertSnooze);
+  
+  server.on("/api/privacy/toggle", HTTP_POST, handlePostPrivacyToggle);
   
   server.on("/api/settings/update", HTTP_POST, [](AsyncWebServerRequest *request){} , NULL,
             [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {

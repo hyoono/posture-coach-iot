@@ -251,31 +251,65 @@ async function takeBreak() {
 }
 
 async function snoozeAlerts() {
-    console.log('Snoozing alerts for 5 minutes');
-    showNotification('Alerts snoozed for 5 minutes', 'info');
-    
-    // TODO: Implement snooze API endpoint if needed
+    try {
+        console.log('Snoozing alerts for 5 minutes...');
+        const response = await fetch('/api/alert/snooze', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            console.log('Alerts snoozed:', result);
+            showNotification('Alerts snoozed for 5 minutes', 'info');
+        } else {
+            throw new Error('Failed to snooze alerts');
+        }
+    } catch (error) {
+        console.error('Error snoozing alerts:', error);
+        showNotification('Failed to snooze alerts', 'error');
+    }
 }
 
 async function togglePrivacy() {
-    privacyModeActive = !privacyModeActive;
-    
-    const btn = document.getElementById('privacyBtn');
-    const cameraStream = document.getElementById('cameraStream');
-    
-    if (privacyModeActive) {
-        btn.classList.add('active');
-        btn.querySelector('.btn-text').textContent = 'Privacy ON';
-        cameraStream.style.display = 'none';
-        showNotification('Privacy mode enabled', 'info');
-    } else {
-        btn.classList.remove('active');
-        btn.querySelector('.btn-text').textContent = 'Privacy Mode';
-        cameraStream.style.display = 'block';
-        showNotification('Privacy mode disabled', 'info');
+    try {
+        console.log('Toggling privacy mode...');
+        const response = await fetch('/api/privacy/toggle', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to toggle privacy');
+        }
+        
+        const result = await response.json();
+        console.log('Privacy toggle result:', result);
+        
+        privacyModeActive = !privacyModeActive;
+        
+        const btn = document.getElementById('privacyBtn');
+        const cameraStream = document.getElementById('cameraStream');
+        
+        if (privacyModeActive) {
+            btn.classList.add('active');
+            btn.querySelector('.btn-text').textContent = 'Privacy ON';
+            cameraStream.style.display = 'none';
+            showNotification('Privacy mode enabled', 'info');
+        } else {
+            btn.classList.remove('active');
+            btn.querySelector('.btn-text').textContent = 'Privacy Mode';
+            cameraStream.style.display = 'block';
+            showNotification('Privacy mode disabled', 'info');
+        }
+    } catch (error) {
+        console.error('Error toggling privacy:', error);
+        showNotification('Failed to toggle privacy mode', 'error');
     }
-    
-    console.log('Privacy mode:', privacyModeActive ? 'ON' : 'OFF');
 }
 
 // Settings modal functions
