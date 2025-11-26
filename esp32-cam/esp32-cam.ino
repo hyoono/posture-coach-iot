@@ -299,7 +299,8 @@ int calculatePostureScore(camera_fb_t * fb) {
   currentSession.scoreSum += finalScore;
   currentSession.averageScore = currentSession.scoreSum / currentSession.totalReadings;
   
-  // Generate command for WEMOS based on score
+  // Generate LED command for WEMOS based on score
+  // NOTE: Only sending LED commands via queue. WEMOS handles its own buzzer based on score.
   CommandData cmd;
   if(finalScore >= POSTURE_EXCELLENT) {
     cmd.command = "LED";
@@ -313,21 +314,18 @@ int calculatePostureScore(camera_fb_t * fb) {
     cmd.command = "LED";
     cmd.value = "YELLOW";
     cmd.pattern = "SOLID";
-    cmd.command = "BUZZER";
-    cmd.pattern = "WARNING";
-    cmd.duration = 500;
     currentSession.alertsTriggered++;
   } else {
     cmd.command = "LED";
     cmd.value = "RED";
     cmd.pattern = "SOLID";
-    cmd.command = "BUZZER";
-    cmd.pattern = "URGENT";
-    cmd.duration = 1000;
     currentSession.alertsTriggered++;
   }
   
   xQueueSend(commandQueue, &cmd, 0);
+  
+  Serial.print("Posture analysis complete - Sending LED command: ");
+  Serial.println(cmd.value);
   
   return finalScore;
 }

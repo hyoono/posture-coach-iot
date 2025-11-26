@@ -56,7 +56,7 @@ const int serverPort = 80;
 // Timing Constants
 #define DISTANCE_READ_INTERVAL 2000    // Read distance every 2 seconds
 #define POLL_INTERVAL 3000             // Poll ESP32-CAM every 3 seconds
-#define BUTTON_DEBOUNCE 50             // Button debounce delay (ms)
+#define BUTTON_DEBOUNCE 100            // Button debounce delay (ms) - increased for stability
 #define OLED_UPDATE_INTERVAL 1000      // Update OLED every 1 second
 #define WIFI_RECONNECT_INTERVAL 5000   // Try reconnecting every 5 seconds
 
@@ -164,7 +164,7 @@ void setupPins() {
   Serial.println("Initializing pins...");
   
   // Buttons with internal pull-up resistors
-  pinMode(BUTTON1_PIN, INPUT_PULLUP);  // D5 - Manual Break
+  pinMode(BUTTON1_PIN, INPUT_PULLUP);  // D11 - Manual Break
   pinMode(BUTTON2_PIN, INPUT_PULLUP);  // D6 - Snooze
   pinMode(BUTTON3_PIN, INPUT_PULLUP);  // D7 - Privacy
   
@@ -364,37 +364,52 @@ void checkButtons() {
   // Button 1: Manual Break (Active LOW with internal pull-up)
   // Only trigger if button has been released first (prevents stuck button)
   static bool btn1WasHigh = true;
+  static unsigned long btn1LastChange = 0;
+  
   if (btn1State == HIGH) {
     btn1WasHigh = true;
+    btn1LastChange = millis();
   }
   if (btn1State == LOW && btn1WasHigh && 
+      (millis() - btn1LastChange > BUTTON_DEBOUNCE) &&
       (millis() - lastButton1Press > BUTTON_DEBOUNCE)) {
     lastButton1Press = millis();
     btn1WasHigh = false;
+    Serial.println("[DEBUG] Button 1 (D11) pressed - triggering break");
     handleBreakButton();
   }
   
   // Button 2: Snooze Alerts (Active LOW with internal pull-up)
   static bool btn2WasHigh = true;
+  static unsigned long btn2LastChange = 0;
+  
   if (btn2State == HIGH) {
     btn2WasHigh = true;
+    btn2LastChange = millis();
   }
   if (btn2State == LOW && btn2WasHigh && 
+      (millis() - btn2LastChange > BUTTON_DEBOUNCE) &&
       (millis() - lastButton2Press > BUTTON_DEBOUNCE)) {
     lastButton2Press = millis();
     btn2WasHigh = false;
+    Serial.println("[DEBUG] Button 2 (D6) pressed - triggering snooze");
     handleSnoozeButton();
   }
   
   // Button 3: Privacy Mode Toggle (Active LOW with internal pull-up)
   static bool btn3WasHigh = true;
+  static unsigned long btn3LastChange = 0;
+  
   if (btn3State == HIGH) {
     btn3WasHigh = true;
+    btn3LastChange = millis();
   }
   if (btn3State == LOW && btn3WasHigh && 
+      (millis() - btn3LastChange > BUTTON_DEBOUNCE) &&
       (millis() - lastButton3Press > BUTTON_DEBOUNCE)) {
     lastButton3Press = millis();
     btn3WasHigh = false;
+    Serial.println("[DEBUG] Button 3 (D7) pressed - triggering privacy");
     handlePrivacyButton();
   }
 }
