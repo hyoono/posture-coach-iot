@@ -18,7 +18,6 @@
 #include <ArduinoJson.h>
 #include "esp_camera.h"
 #include "esp_timer.h"
-#include "esp_http_server.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -133,9 +132,6 @@ bool privacyMode = false;
 bool breakMode = false;
 unsigned long lastBreakTime = 0;
 unsigned long breakStartTime = 0;
-
-// Streaming
-httpd_handle_t stream_httpd = NULL;
 
 // ============================================================================
 // CAMERA INITIALIZATION
@@ -303,7 +299,8 @@ int calculatePostureScore(camera_fb_t * fb) {
   currentSession.scoreSum += finalScore;
   currentSession.averageScore = currentSession.scoreSum / currentSession.totalReadings;
   
-  // Generate command for WEMOS based on score
+  // Generate LED command for WEMOS based on score
+  // NOTE: Only sending LED commands via queue. WEMOS handles its own buzzer based on score.
   CommandData cmd;
   if(finalScore >= POSTURE_EXCELLENT) {
     cmd.command = "LED";
@@ -317,21 +314,18 @@ int calculatePostureScore(camera_fb_t * fb) {
     cmd.command = "LED";
     cmd.value = "YELLOW";
     cmd.pattern = "SOLID";
-    cmd.command = "BUZZER";
-    cmd.pattern = "WARNING";
-    cmd.duration = 500;
     currentSession.alertsTriggered++;
   } else {
     cmd.command = "LED";
     cmd.value = "RED";
     cmd.pattern = "SOLID";
-    cmd.command = "BUZZER";
-    cmd.pattern = "URGENT";
-    cmd.duration = 1000;
     currentSession.alertsTriggered++;
   }
   
   xQueueSend(commandQueue, &cmd, 0);
+  
+  Serial.print("Posture analysis complete - Sending LED command: ");
+  Serial.println(cmd.value);
   
   return finalScore;
 }
@@ -376,96 +370,84 @@ void postureDetectionTask(void *parameter) {
 }
 
 // ============================================================================
-// FREERTOS TASK 2: MJPEG STREAMING
+// MJPEG STREAMING HANDLER (AsyncWebServer compatible)
 // ============================================================================
 
-static esp_err_t stream_handler(httpd_req_t *req) {
-  camera_fb_t * fb = NULL;
-  esp_err_t res = ESP_OK;
-  size_t _jpg_buf_len = 0;
-  uint8_t * _jpg_buf = NULL;
-  char * part_buf[64];
-  
-  res = httpd_resp_set_type(req, "multipart/x-mixed-replace; boundary=frame");
-  if(res != ESP_OK) return res;
-  
-  while(true) {
-    if(privacyMode) {
-      vTaskDelay(pdMS_TO_TICKS(1000));
-      continue;
+class AsyncJpegStreamResponse: public AsyncAbstractResponse {
+  private:
+    camera_fb_t * _fb;
+    size_t _index;
+  public:
+    AsyncJpegStreamResponse() {
+      _callback = nullptr;
+      _code = 200;
+      _contentLength = 0;
+      _contentType = "multipart/x-mixed-replace; boundary=frame";
+      _sendContentLength = false;
+      _chunked = true;
+      _index = 0;
+      _fb = NULL;
     }
     
-    if(xSemaphoreTake(cameraMutex, pdMS_TO_TICKS(100))) {
-      fb = esp_camera_fb_get();
-      xSemaphoreGive(cameraMutex);
-      
-      if(!fb) {
-        Serial.println("Camera capture failed in stream");
-        res = ESP_FAIL;
-      } else {
-        if(fb->format != PIXFORMAT_JPEG) {
-          bool jpeg_converted = frame2jpg(fb, 80, &_jpg_buf, &_jpg_buf_len);
-          esp_camera_fb_return(fb);
-          fb = NULL;
-          if(!jpeg_converted) {
-            Serial.println("JPEG compression failed");
-            res = ESP_FAIL;
-          }
-        } else {
-          _jpg_buf_len = fb->len;
-          _jpg_buf = fb->buf;
-        }
+    ~AsyncJpegStreamResponse() {
+      if (_fb) {
+        esp_camera_fb_return(_fb);
+        _fb = NULL;
       }
     }
     
-    if(res == ESP_OK) {
-      size_t hlen = snprintf((char *)part_buf, 64, 
-                            "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n",
-                            _jpg_buf_len);
-      res = httpd_resp_send_chunk(req, (const char *)part_buf, hlen);
+    bool _sourceValid() const {
+      return cameraInitialized && !privacyMode;
     }
     
-    if(res == ESP_OK) {
-      res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);
+    size_t _fillBuffer(uint8_t *buf, size_t maxLen) {
+      if (!_sourceValid()) {
+        return 0;
+      }
+      
+      size_t ret = 0;
+      
+      if (_fb == NULL) {
+        if (xSemaphoreTake(cameraMutex, pdMS_TO_TICKS(100))) {
+          _fb = esp_camera_fb_get();
+          xSemaphoreGive(cameraMutex);
+        }
+        
+        if (_fb == NULL) {
+          return 0;
+        }
+        
+        _index = 0;
+        
+        // Send boundary and headers
+        size_t hlen = snprintf((char *)buf, maxLen,
+          "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n",
+          _fb->len);
+        ret = hlen;
+        return ret;
+      }
+      
+      // Send JPEG data
+      if (_index < _fb->len) {
+        size_t will_copy = (_fb->len - _index) < maxLen ? (_fb->len - _index) : maxLen;
+        memcpy(buf, _fb->buf + _index, will_copy);
+        _index += will_copy;
+        ret = will_copy;
+      }
+      
+      // Finished sending this frame
+      if (_index >= _fb->len) {
+        esp_camera_fb_return(_fb);
+        _fb = NULL;
+        _index = 0;
+        
+        // Add small delay between frames (10 FPS)
+        vTaskDelay(pdMS_TO_TICKS(100));
+      }
+      
+      return ret;
     }
-    
-    if(res == ESP_OK) {
-      res = httpd_resp_send_chunk(req, "\r\n", 2);
-    }
-    
-    if(fb) {
-      esp_camera_fb_return(fb);
-      fb = NULL;
-      _jpg_buf = NULL;
-    } else if(_jpg_buf) {
-      free(_jpg_buf);
-      _jpg_buf = NULL;
-    }
-    
-    if(res != ESP_OK) break;
-    
-    vTaskDelay(pdMS_TO_TICKS(100));  // 10 FPS
-  }
-  
-  return res;
-}
-
-void startCameraServer() {
-  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.server_port = 81;
-  
-  httpd_uri_t stream_uri = {
-    .uri       = "/stream",
-    .method    = HTTP_GET,
-    .handler   = stream_handler,
-    .user_ctx  = NULL
-  };
-  
-  if(httpd_start(&stream_httpd, &config) == ESP_OK) {
-    httpd_register_uri_handler(stream_httpd, &stream_uri);
-    Serial.println("Camera streaming server started on port 81");
-  }
-}
+};
 
 // ============================================================================
 // REST API ENDPOINTS
@@ -618,6 +600,35 @@ void handlePostSettingsUpdate(AsyncWebServerRequest *request, uint8_t *data, siz
   request->send(200, "application/json", "{\"status\":\"updated\"}");
 }
 
+// POST /api/alert/snooze
+void handlePostAlertSnooze(AsyncWebServerRequest *request) {
+  Serial.println("Snooze requested from web dashboard");
+  
+  CommandData cmd;
+  cmd.command = "SNOOZE";
+  cmd.value = "5MIN";
+  cmd.duration = 300;  // 5 minutes
+  xQueueSend(commandQueue, &cmd, 0);
+  
+  request->send(200, "application/json", "{\"status\":\"snoozed\",\"duration\":300}");
+}
+
+// POST /api/privacy/toggle
+void handlePostPrivacyToggle(AsyncWebServerRequest *request) {
+  privacyMode = !privacyMode;
+  
+  Serial.print("Privacy mode toggled from web: ");
+  Serial.println(privacyMode ? "ENABLED" : "DISABLED");
+  
+  CommandData cmd;
+  cmd.command = "PRIVACY";
+  cmd.value = privacyMode ? "ON" : "OFF";
+  xQueueSend(commandQueue, &cmd, 0);
+  
+  String status = privacyMode ? "privacy_enabled" : "privacy_disabled";
+  request->send(200, "application/json", "{\"status\":\"" + status + "\"}");
+}
+
 // ============================================================================
 // WEB SERVER SETUP
 // ============================================================================
@@ -625,19 +636,41 @@ void handlePostSettingsUpdate(AsyncWebServerRequest *request, uint8_t *data, siz
 void setupWebServer() {
   // Serve static files from SPIFFS
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/index.html", "text/html");
+    if(SPIFFS.exists("/index.html")) {
+      request->send(SPIFFS, "/index.html", "text/html");
+    } else {
+      request->send(404, "text/plain", "File not found. Please upload SPIFFS data.");
+    }
   });
   
   server.on("/index.html", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/index.html", "text/html");
+    if(SPIFFS.exists("/index.html")) {
+      request->send(SPIFFS, "/index.html", "text/html");
+    } else {
+      request->send(404, "text/plain", "File not found. Please upload SPIFFS data.");
+    }
   });
   
   server.on("/style.css", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/style.css", "text/css");
+    if(SPIFFS.exists("/style.css")) {
+      request->send(SPIFFS, "/style.css", "text/css");
+    } else {
+      request->send(404, "text/plain", "File not found");
+    }
   });
   
   server.on("/script.js", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/script.js", "application/javascript");
+    if(SPIFFS.exists("/script.js")) {
+      request->send(SPIFFS, "/script.js", "application/javascript");
+    } else {
+      request->send(404, "text/plain", "File not found");
+    }
+  });
+  
+  // MJPEG Stream endpoint (integrated into main web server)
+  server.on("/stream", HTTP_GET, [](AsyncWebServerRequest *request) {
+    AsyncJpegStreamResponse *response = new AsyncJpegStreamResponse();
+    request->send(response);
   });
   
   // API Endpoints
@@ -657,6 +690,10 @@ void setupWebServer() {
   
   server.on("/api/break/start", HTTP_POST, handlePostBreakStart);
   
+  server.on("/api/alert/snooze", HTTP_POST, handlePostAlertSnooze);
+  
+  server.on("/api/privacy/toggle", HTTP_POST, handlePostPrivacyToggle);
+  
   server.on("/api/settings/update", HTTP_POST, [](AsyncWebServerRequest *request){} , NULL,
             [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
               handlePostSettingsUpdate(request, data, len, index, total);
@@ -669,6 +706,8 @@ void setupWebServer() {
   
   server.begin();
   Serial.println("HTTP server started on port 80");
+  Serial.println("  Dashboard: http://192.168.4.1/");
+  Serial.println("  Live Stream: http://192.168.4.1/stream");
 }
 
 // ============================================================================
@@ -687,6 +726,20 @@ void setup() {
     return;
   }
   Serial.println("SPIFFS mounted successfully");
+  
+  // List SPIFFS files for debugging
+  Serial.println("\nSPIFFS Files:");
+  File root = SPIFFS.open("/");
+  File file = root.openNextFile();
+  while(file) {
+    Serial.print("  ");
+    Serial.print(file.name());
+    Serial.print(" (");
+    Serial.print(file.size());
+    Serial.println(" bytes)");
+    file = root.openNextFile();
+  }
+  Serial.println();
   
   // Initialize Camera
   if(!initCamera()) {
@@ -720,9 +773,6 @@ void setup() {
   // Setup Web Server
   setupWebServer();
   
-  // Start Camera Streaming Server
-  startCameraServer();
-  
   // Create FreeRTOS Tasks
   xTaskCreatePinnedToCore(
     postureDetectionTask,
@@ -740,7 +790,7 @@ void setup() {
   Serial.printf("Connect to WiFi: %s\n", AP_SSID);
   Serial.printf("Password: %s\n", AP_PASSWORD);
   Serial.printf("Dashboard: http://%s\n", WiFi.softAPIP().toString().c_str());
-  Serial.printf("Stream: http://%s:81/stream\n", WiFi.softAPIP().toString().c_str());
+  Serial.printf("Live Stream: http://%s/stream\n", WiFi.softAPIP().toString().c_str());
   Serial.println("========================================\n");
 }
 
