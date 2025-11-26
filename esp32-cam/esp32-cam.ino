@@ -18,7 +18,6 @@
 #include <ArduinoJson.h>
 #include "esp_camera.h"
 #include "esp_timer.h"
-#include "esp_http_server.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
