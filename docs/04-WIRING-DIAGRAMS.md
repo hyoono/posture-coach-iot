@@ -20,12 +20,12 @@ This document provides detailed wiring instructions for connecting all component
 | **D2** | GPIO4 | Digital Output | HC-SR04 Trigger |
 | **D3** (D15/SCL) | GPIO0 | I2C Clock | OLED SCL |
 | **D4** (D14/SDA) | GPIO2 | I2C Data | OLED SDA |
-| **D5** (D13/SCK) | GPIO14 | Digital Input (Pull-up) | Button 1 - Manual Break |
+| **D5** (D13/SCK) | GPIO14 | PWM Output | RGB LED - Red (MOVED from D8) |
 | **D6** (D12/MISO) | GPIO12 | Digital Input (Pull-up) | Button 2 - Snooze |
 | **D7** (D11/MOSI) | GPIO13 | Digital Input (Pull-up) | Button 3 - Privacy |
-| **D8** | GPIO15 | PWM Output | RGB LED - Red |
-| **D9** (TX1) | GPIO3* | PWM Output | RGB LED - Green |
-| **D10** (SS) | GPIO1* | PWM Output | RGB LED - Blue |
+| **D8** | GPIO15 | PWM Output | RGB LED - Green (MOVED from D9) |
+| **D9** (TX1) | GPIO3* | PWM Output | RGB LED - Blue (MOVED from D10) |
+| **D11** (MOSI) | GPIO9 | Digital Input (Pull-up) | Button 1 - Manual Break (MOVED from D5) |
 | **D13** (SCK header) | GPIO14 | Digital Input | HC-SR04 Echo |
 | **A0** | ADC0 | Digital Output | Buzzer |
 | **LED_BUILTIN** | GPIO2 | Digital Output | WiFi Status Indicator |
@@ -33,7 +33,9 @@ This document provides detailed wiring instructions for connecting all component
 | **5V** | - | Power Output | HC-SR04, OLED power |
 | **GND** | - | Ground | Common ground for all |
 
-*Note: D9 and D10 use alternate GPIO mappings on some WEMOS D1 R1 boards
+**IMPORTANT:** D5 (GPIO14) has hardware pull-down resistor that prevents reliable button operation. Button 1 moved to D11 (GPIO9) to avoid this issue.
+
+*Note: D9 uses alternate GPIO mapping on some WEMOS D1 R1 boards
 
 ---
 
@@ -182,7 +184,7 @@ tone(BUZZER_PIN, 1000, 200);
 ```
 Button 1 (Manual Break)
 -----------------------
-One side  --------> D5 (GPIO14)
+One side  --------> D11 (GPIO9) - MOVED from D5 to avoid hardware pull-down
 Other side -------> GND
 
 Button 2 (Snooze)
@@ -314,13 +316,13 @@ To upload firmware, connect:
     HC-SR04 TRIG ───────D2│  GPIO4           │
     OLED SCL     ───────D3│  GPIO0 (D15/SCL) │
     OLED SDA     ───────D4│  GPIO2 (D14/SDA) │
-    Button 1     ───────D5│  GPIO14          │──── Manual Break
+    RGB Red      ───[220Ω]─D5│  GPIO14          │
     Button 2     ───────D6│  GPIO12          │──── Snooze Alerts
     Button 3     ───────D7│  GPIO13          │──── Privacy Toggle
-    RGB Red      ───[220Ω]─D8│  GPIO15          │
-    RGB Green    ───[220Ω]─D9│  TX1             │
-    RGB Blue     ───[220Ω]─D10│ SS              │
+    RGB Green    ───[220Ω]─D8│  GPIO15          │
+    RGB Blue     ───[220Ω]─D9│  TX1             │
                             │                  │
+    Button 1     ──────D11│  GPIO9 (MOSI)    │──── Manual Break
                             │              D13│──── HC-SR04 ECHO
                             │                  │
                             │              A0 │──── Buzzer
@@ -348,9 +350,9 @@ To upload firmware, connect:
 │  Pushbuttons    │          │ Piezo Buzzer    │          │  Power Supply   │
 │  (3 buttons)    │          │                 │          │   5V 2A         │
 ├─────────────────┤          ├─────────────────┤          ├─────────────────┤
-│ Btn1 → D5 + GND │          │ (+) → A0        │          │ 5V  → WEMOS 5V  │
-│ Btn2 → D6 + GND │          │ (-) → GND       │          │ GND → WEMOS GND │
-│ Btn3 → D7 + GND │          │                 │          │                 │
+│ Btn1 → D11+GND  │          │ (+) → A0        │          │ 5V  → WEMOS 5V  │
+│ Btn2 → D6 +GND  │          │ (-) → GND       │          │ GND → WEMOS GND │
+│ Btn3 → D7 +GND  │          │                 │          │                 │
 │ (Internal PU)   │          │                 │          │ 5V  → ESP32 5V  │
 └─────────────────┘          └─────────────────┘          │ GND → ESP32 GND │
                                                            └─────────────────┘
@@ -535,7 +537,7 @@ Before powering on:
 - [ ] HC-SR04: VCC=5V, GND=GND, TRIG=D2, ECHO=D13
 - [ ] OLED: VCC=5V, GND=GND, SDA=D4, SCL=D3
 - [ ] Buttons: D5, D6, D7 to GND (with internal pull-ups)
-- [ ] RGB LED: Red=D8, Green=D9, Blue=D10 (with 220Ω resistors), Cathode=GND
+- [ ] RGB LED: Red=D5, Green=D8, Blue=D9 (with 220Ω resistors), Cathode=GND
 - [ ] Buzzer: Positive=A0, Negative=GND
 - [ ] TX (D1) and RX (D0) are free
 - [ ] Power supply rated 5V 2A minimum

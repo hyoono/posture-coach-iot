@@ -4,13 +4,14 @@
  * 
  * CRITICAL: Pin configuration based on WEMOS D1 R1 board silkscreen
  * TX (D1) and RX (D0) are RESERVED for Serial Monitor - DO NOT USE
+ * D5 (GPIO14) has hardware pull-down - AVOIDED for buttons
  * 
  * Hardware Connections (Based on Board Silkscreen):
  * - Serial Monitor: RX<-D0 (RESERVED), TX->D1 (RESERVED)
  * - HC-SR04 Ultrasonic: Trigger=D2, Echo=D13 (header side SCK)
  * - OLED Display I2C: SDA=D4 (D14/SDA), SCL=D3 (D15/SCL)
- * - Buttons (Internal Pull-up): Break=D5, Snooze=D6, Privacy=D7
- * - RGB LED (Common Cathode): Red=D8, Green=D9, Blue=D10
+ * - Buttons (Internal Pull-up): Break=D11, Snooze=D6, Privacy=D7
+ * - RGB LED (Common Cathode): Red=D5, Green=D8, Blue=D9
  * - Piezo Buzzer: A0 (digital output)
  * - WiFi Status: Built-in LED (LED_BUILTIN)
  */
@@ -24,17 +25,18 @@
 #include <ArduinoJson.h>
 
 // Pin Definitions - WEMOS D1 R1 Specific (TX/RX kept free for Serial)
+// NOTE: D5 (GPIO14) has hardware pull-down issue - avoid for buttons
 #define PIN_RX D0           // RESERVED for Serial RX - DO NOT USE
 #define PIN_TX D1           // RESERVED for Serial TX - DO NOT USE
 #define TRIG_PIN D2         // HC-SR04 Trigger
 #define OLED_SCL D3         // I2C Clock (D15/SCL on silkscreen)
 #define OLED_SDA D4         // I2C Data (D14/SDA on silkscreen)
-#define BUTTON1_PIN D5      // Manual Break (with internal pull-up)
+#define LED_RED D5          // RGB LED Red (220Ω resistor) - MOVED FROM D8
 #define BUTTON2_PIN D6      // Snooze (with internal pull-up)
 #define BUTTON3_PIN D7      // Privacy (with internal pull-up)
-#define LED_RED D8          // RGB LED Red (220Ω resistor)
-#define LED_GREEN D9        // RGB LED Green (220Ω resistor)
-#define LED_BLUE D10        // RGB LED Blue (220Ω resistor)
+#define LED_GREEN D8        // RGB LED Green (220Ω resistor) - MOVED FROM D9
+#define LED_BLUE D9         // RGB LED Blue (220Ω resistor) - MOVED FROM D10
+#define BUTTON1_PIN D11     // Manual Break (with internal pull-up) - MOVED FROM D5
 #define ECHO_PIN D13        // HC-SR04 Echo (header side SCK)
 #define BUZZER_PIN A0       // Buzzer (used as digital output)
 #define STATUS_LED LED_BUILTIN  // WiFi status indicator
@@ -188,8 +190,8 @@ void setupPins() {
   digitalWrite(STATUS_LED, HIGH);
   
   Serial.println("Pins initialized");
-  Serial.println("  Buttons: D5, D6, D7 (with internal pull-up)");
-  Serial.println("  RGB LED: D8 (Red), D9 (Green), D10 (Blue)");
+  Serial.println("  Buttons: D11 (Break), D6 (Snooze), D7 (Privacy) - internal pull-up");
+  Serial.println("  RGB LED: D5 (Red), D8 (Green), D9 (Blue)");
   Serial.println("  Ultrasonic: D2 (Trig), D13 (Echo)");
   Serial.println("  Buzzer: A0");
   Serial.println("  I2C: D4 (SDA), D3 (SCL)");
@@ -197,7 +199,7 @@ void setupPins() {
   // Read initial button states for debugging
   delay(100);
   Serial.println("\nInitial button states (should be HIGH with pull-ups):");
-  Serial.print("  Button 1 (D5): ");
+  Serial.print("  Button 1 (D11): ");
   Serial.println(digitalRead(BUTTON1_PIN) == HIGH ? "HIGH (released)" : "LOW (STUCK OR PRESSED!)");
   Serial.print("  Button 2 (D6): ");
   Serial.println(digitalRead(BUTTON2_PIN) == HIGH ? "HIGH (released)" : "LOW (pressed)");
